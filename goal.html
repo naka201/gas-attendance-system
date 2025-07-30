@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>目標設定</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; font-size: 16px; }
+    .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.1); width: 100%; max-width: 600px; margin: 20px auto; }
+    h1, h2 { color: #333; }
+    h1 { text-align: center; }
+    label { display: block; margin-bottom: 8px; color: #555; font-weight: bold; }
+    textarea, input[type="text"] { width: 100%; padding: 12px; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; font-family: inherit; box-sizing: border-box; }
+    textarea { resize: vertical; min-height: 100px; }
+    .read-only-goal { background-color: #f9f9f9; padding: 12px; border-radius: 4px; border: 1px solid #eee; margin-bottom: 20px; }
+    button { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 1.1em; }
+    button:hover { background-color: #0056b3; }
+    button:disabled { background-color: #ccc; }
+    .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 15px auto; display: none; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .message { margin-top: 15px; padding: 12px; border-radius: 5px; display: none; }
+    .error { background-color: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>今月の目標設定</h1>
+    <p style="text-align:center; color: #666;"><?!= studentName ?>さん、こんにちは！新しい月の目標を立てましょう。</p>
+
+    <form id="goalForm">
+      <!-- 先月の情報 -->
+      <div id="lastMonthSection">
+        <h2><?!= lastMonth ?>月の振り返り</h2>
+        <label>先月の目標</label>
+        <div class="read-only-goal" id="lastMonthGoalText"><?!= lastMonthGoal || '（目標はありませんでした）' ?></div>
+        <label for="reflection">先月の振り返りを入力してください</label>
+        <textarea id="reflection" name="reflection" required></textarea>
+      </div>
+
+      <!-- 今月の目標 -->
+      <h2><?!= currentMonth ?>月の目標</h2>
+      <label for="newGoal">今月の目標を入力してください</label>
+      <textarea id="newGoal" name="newGoal" required></textarea>
+
+      <button type="submit">保存して進む</button>
+    </form>
+    <div id="loader" class="loader"></div>
+    <div id="messageArea" class="message"></div>
+  </div>
+
+  <script>
+    const webAppUrl = "<?!= webAppUrl ?>";
+    const userId = "<?!= userId ?>";
+    const studentName = "<?!= studentName ?>";
+    const currentYear = parseInt("<?!= currentYear ?>", 10);
+    const currentMonth = parseInt("<?!= currentMonth ?>", 10);
+    const lastMonthYear = parseInt("<?!= lastMonthYear ?>", 10);
+    const lastMonth = parseInt("<?!= lastMonth ?>", 10);
+
+    // 先月の目標がない場合は、振り返りセクションを非表示にする
+    if (!"<?!= lastMonthGoal ?>") {
+      document.getElementById('lastMonthSection').style.display = 'none';
+      // 必須入力も解除
+      document.getElementById('reflection').required = false;
+    }
+
+    document.getElementById('goalForm').addEventListener('submit', function(event) {
+      event.preventDefault();
+      saveData();
+    });
+
+    function saveData() {
+      const newGoal = document.getElementById('newGoal').value;
+      const reflection = document.getElementById('reflection').value;
+      const loader = document.getElementById('loader');
+      const messageArea = document.getElementById('messageArea');
+      const button = document.querySelector('button');
+
+      loader.style.display = 'block';
+      messageArea.style.display = 'none';
+      button.disabled = true;
+
+      const data = {
+        userId: userId,
+        currentYear: currentYear,
+        currentMonth: currentMonth,
+        newGoal: newGoal,
+        lastMonthYear: lastMonthYear,
+        lastMonth: lastMonth,
+        reflection: reflection
+      };
+
+      google.script.run
+        .withSuccessHandler(function(response) {
+          if (response.success) {
+            // 成功したらメインページにリダイレクト
+            const targetUrl = `${webAppUrl}?page=main&userId=${encodeURIComponent(userId)}&studentName=${encodeURIComponent(studentName)}`;
+            window.top.location.href = targetUrl;
+          } else {
+            showMessage('エラー: ' + response.message, 'error');
+            loader.style.display = 'none';
+            button.disabled = false;
+          }
+        })
+        .withFailureHandler(function(error) {
+          showMessage('エラーが発生しました: ' + error.message, 'error');
+          loader.style.display = 'none';
+          button.disabled = false;
+        })
+        .saveGoalAndReflection(data);
+    }
+
+    function showMessage(msg, type) {
+      const messageArea = document.getElementById('messageArea');
+      messageArea.textContent = msg;
+      messageArea.className = 'message ' + type;
+      messageArea.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

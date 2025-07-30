@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理者用ダッシュボード</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f8f9fa; color: #212529; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1, h2, h3 { color: #343a40; border-bottom: 2px solid #dee2e6; padding-bottom: 10px; margin-bottom: 20px; }
+    h3 { font-size: 1.4em; border-bottom-style: solid; border-bottom-width: 1px; margin-top: 30px; }
+    .logout-link { display: block; text-align: right; margin-bottom: 20px; color: #007bff; text-decoration: none; }
+    .status-table { width: 100%; border-collapse: collapse; margin-top: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .status-table th, .status-table td { border: 1px solid #dee2e6; padding: 12px; text-align: left; vertical-align: top; }
+    .status-table th { background-color: #e9ecef; }
+    .loader { border: 4px solid #e9ecef; border-top: 4px solid #007bff; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 20px auto; display: none; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .btn-force-end { background-color: #dc3545; color: white; padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    .btn-force-end:hover { background-color: #c82333; }
+    .btn-force-end:disabled { background-color: #adb5bd; cursor: not-allowed; }
+    #student-dashboard { margin-top: 40px; border-top: 2px solid #dee2e6; padding-top: 20px; }
+    .student-selector { margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+    label { font-weight: bold; }
+    select { padding: 8px; border-radius: 4px; border: 1px solid #ced4da; font-size: 1em; }
+    /* Goal History Table Styles */
+    .goal-history-table td:nth-child(1) { width: 10%; }
+    .goal-history-table td:nth-child(2) { width: 25%; white-space: pre-wrap; word-wrap: break-word; }
+    .goal-history-table td:nth-child(3) { width: 25%; white-space: pre-wrap; word-wrap: break-word; }
+    .goal-history-table td:nth-child(4) { width: 40%; }
+    .goal-history-table textarea { width: 100%; min-height: 80px; padding: 8px; border-radius: 4px; border: 1px solid #ced4da; box-sizing: border-box; font-family: inherit; font-size: 1em; }
+    .goal-history-table .btn-save { background-color: #28a745; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; display: block; margin-top: 5px; width: 100%; }
+    .goal-history-table .btn-save:disabled { background-color: #adb5bd; }
+    .goal-history-table .btn-save:hover:not(:disabled) { background-color: #218838; }
+    /* New styles for comment-needed section */
+    #comment-needed-container { margin-top: 40px; border-top: 2px solid #dee2e6; padding-top: 20px; }
+    #comment-needed-container h2 { margin-bottom: 20px; }
+  </style>
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+</head>
+<body>
+  <div class="container">
+    <a href="<?!= webAppUrl ?>" class="logout-link">ログアウト</a>
+    <h1>管理者用ダッシュボード</h1>
+    
+    <div id="status-container">
+      <h2>リアルタイム学習状況</h2>
+      <div id="loader-status" class="loader"></div>
+      <div id="status-table-container"></div>
+      <p id="status-message"></p>
+    </div>
+
+    <div id="student-dashboard">
+      <h2>生徒別データ</h2>
+      <div class="student-selector">
+        <label for="student-select">生徒を選択:</label>
+        <select id="student-select" onchange="handleStudentSelect()">
+          <option value="">-- 生徒を選んでください --</option>
+        </select>
+      </div>
+      <div id="loader-student" class="loader"></div>
+      <p id="student-message"></p>
+      <div id="student-data-container" style="display: none;">
+        <h3>学習サマリー</h3>
+        <p id="summary-last-activity"></p>
+        <p id="summary-monthly-total"></p>
+        <p id="summary-overall-total"></p>
+        <div id="chart_div_admin" style="width: 100%; height: 300px;"></div>
+        <h3>目標履歴 (過去1年分)</h3>
+        <div id="goal-history-container"></div>
+        <h3>入退室ログ (直近50件)</h3>
+        <div id="log-table-container"></div>
+      </div>
+    </div>
+
+    <div id="comment-needed-container">
+      <h2>コーチコメントが必要な生徒</h2>
+      <div id="loader-comment-needed" class="loader"></div>
+      <div id="comment-needed-table-container"></div>
+      <p id="comment-needed-message"></p>
+    </div>
+
+  </div>
+
+  <script>
+    const webAppUrl = "<?!= webAppUrl ?>";
+
+    document.addEventListener("DOMContentLoaded", function() {
+      google.charts.load('current', {'packages':['corechart']});
+      google.charts.setOnLoadCallback(initAdminPage);
+    });
+
+    function initAdminPage() {
+      fetchRealTimeStatus();
+      setInterval(fetchRealTimeStatus, 30000);
+      fetchAllStudents();
+      fetchStudentsNeedingComment(); // ★追加
+    }
+
+    function fetchStudentsNeedingComment() {
+      document.getElementById('loader-comment-needed').style.display = 'block';
+      google.script.run
+        .withSuccessHandler(function(response) {
+          document.getElementById('loader-comment-needed').style.display = 'none';
+          if (response.success) {
+            updateStudentsNeedingCommentTable(response.data, response.targetYear, response.targetMonth);
+          } else {
+            document.getElementById('comment-needed-message').textContent = 'エラー: ' + response.message;
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('loader-comment-needed').style.display = 'none';
+          document.getElementById('comment-needed-message').textContent = 'サーバーとの通信に失敗しました: ' + error.message;
+        })
+        .getStudentsNeedingComment();
+    }
+
+    function updateStudentsNeedingCommentTable(data, year, month) {
+      const container = document.getElementById('comment-needed-table-container');
+      const message = document.getElementById('comment-needed-message');
+      container.innerHTML = '';
+      message.textContent = '';
+
+      if (data.length === 0) {
+        message.textContent = `先月 (${year}年${month}月) の振り返りで、コーチコメントが必要な生徒はいません。`;
+        return;
+      }
+
+      const table = document.createElement('table');
+      table.className = 'status-table';
+      
+      const thead = table.createTHead();
+      const headerRow = thead.insertRow();
+      const headers = ['生徒名', '年月', '振り返り', '操作'];
+      headers.forEach(text => {
+        const th = document.createElement('th');
+        th.textContent = text;
+        headerRow.appendChild(th);
+      });
+
+      const tbody = table.createTBody();
+      data.forEach(student => {
+        const row = tbody.insertRow();
+        row.insertCell().textContent = student.studentName;
+        row.insertCell().textContent = `${student.year}年${student.month}月`;
+        row.insertCell().textContent = student.reflection;
+        
+        const actionCell = row.insertCell();
+        const commentButton = document.createElement('button');
+        commentButton.className = 'btn-save'; // 既存の保存ボタンのスタイルを流用
+        commentButton.textContent = 'コメントする';
+        commentButton.onclick = function() {
+          // 生徒選択ドロップダウンを更新し、該当生徒のデータ表示をトリガー
+          const select = document.getElementById('student-select');
+          select.value = student.userId;
+          handleStudentSelect();
+          // 目標履歴セクションまでスクロール
+          document.getElementById('goal-history-container').scrollIntoView({ behavior: 'smooth' });
+        };
+        actionCell.appendChild(commentButton);
+      });
+
+      container.appendChild(table);
+    }
+
+    function fetchRealTimeStatus() {
+      document.getElementById('loader-status').style.display = 'block';
+      google.script.run
+        .withSuccessHandler(function(response) {
+          document.getElementById('loader-status').style.display = 'none';
+          if (response.success) {
+            updateStatusTable(response.data);
+          } else {
+            document.getElementById('status-message').textContent = 'エラー: ' + response.message;
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('loader-status').style.display = 'none';
+          document.getElementById('status-message').textContent = 'サーバーとの通信に失敗しました: ' + error.message;
+        })
+        .getRealTimeStatus();
+    }
+
+    function updateStatusTable(data) {
+      const container = document.getElementById('status-table-container');
+      const message = document.getElementById('status-message');
+      container.innerHTML = '';
+      message.textContent = '';
+
+      if (data.length === 0) {
+        message.textContent = '現在、学習中の生徒はいません。';
+        return;
+      }
+
+      const table = document.createElement('table');
+      table.className = 'status-table';
+      
+      const thead = table.createTHead();
+      const headerRow = thead.insertRow();
+      const headers = ['生徒名', '学習開始時刻', '現在の学習時間', '操作'];
+      headers.forEach(text => {
+        const th = document.createElement('th');
+        th.textContent = text;
+        headerRow.appendChild(th);
+      });
+
+      const tbody = table.createTBody();
+      data.forEach(student => {
+        const row = tbody.insertRow();
+        row.insertCell().textContent = student.studentName;
+        row.insertCell().textContent = student.startTime;
+        row.insertCell().textContent = student.duration + ' 分';
+        
+        const actionCell = row.insertCell();
+        const endButton = document.createElement('button');
+        endButton.className = 'btn-force-end';
+        endButton.textContent = '強制終了';
+        endButton.dataset.userid = student.userId;
+        endButton.dataset.name = student.studentName;
+        endButton.onclick = function() {
+          handleForceEnd(this.dataset.userid, this.dataset.name);
+        };
+        actionCell.appendChild(endButton);
+      });
+
+      container.appendChild(table);
+    }
+
+    function handleForceEnd(userId, studentName) {
+      if (!confirm(`${studentName}さんの学習を強制的に終了しますか？`)) {
+        return;
+      }
+
+      const buttons = document.querySelectorAll('.btn-force-end');
+      buttons.forEach(btn => btn.disabled = true);
+
+      google.script.run
+        .withSuccessHandler(function(response) {
+          if (response.success) {
+            alert(response.message);
+            fetchRealTimeStatus();
+          } else {
+            alert('エラー: ' + response.message);
+            buttons.forEach(btn => btn.disabled = false);
+          }
+        })
+        .withFailureHandler(function(error) {
+          alert('サーバーとの通信に失敗しました: ' + error.message);
+          buttons.forEach(btn => btn.disabled = false);
+        })
+        .forceEndStudy(userId);
+    }
+
+    function fetchAllStudents() {
+      google.script.run
+        .withSuccessHandler(function(response) {
+          if (response.success) {
+            const select = document.getElementById('student-select');
+            response.data.forEach(student => {
+              const option = document.createElement('option');
+              option.value = student.id;
+              option.textContent = student.name;
+              select.appendChild(option);
+            });
+          } else {
+            document.getElementById('student-message').textContent = '生徒リストの読み込みに失敗しました: ' + response.message;
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('student-message').textContent = 'サーバーとの通信に失敗しました: ' + error.message;
+        })
+        .getAllStudents();
+    }
+
+    function handleStudentSelect() {
+      const studentId = document.getElementById('student-select').value;
+      const container = document.getElementById('student-data-container');
+      const messageEl = document.getElementById('student-message');
+      
+      messageEl.style.display = 'none';
+      messageEl.textContent = '';
+
+      if (!studentId) {
+        container.style.display = 'none';
+        return;
+      }
+      
+      document.getElementById('loader-student').style.display = 'block';
+      container.style.display = 'none';
+
+      google.script.run
+        .withSuccessHandler(function(response) {
+          document.getElementById('loader-student').style.display = 'none';
+          if (response.success) {
+            displayStudentData(response.data);
+          } else {
+            messageEl.textContent = '生徒データの読み込みに失敗しました: ' + response.message;
+            messageEl.style.display = 'block';
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('loader-student').style.display = 'none';
+          messageEl.textContent = 'サーバーとの通信に失敗しました: ' + error.message;
+          messageEl.style.display = 'block';
+        })
+        .getStudentData(studentId);
+    }
+
+    function displayStudentData(data) {
+      const container = document.getElementById('student-data-container');
+      const messageEl = document.getElementById('student-message');
+
+      if (!data.summary.isDataFound) {
+        container.style.display = 'none';
+        messageEl.textContent = 'この生徒の学習記録はまだありません。';
+        messageEl.style.display = 'block';
+        return;
+      }
+
+      messageEl.style.display = 'none';
+      container.style.display = 'block';
+
+      document.getElementById('summary-last-activity').textContent = `最終活動日: ${data.summary.lastActivityDate}`;
+      document.getElementById('summary-monthly-total').textContent = `今月の学習時間: ${data.summary.monthlyTotal} 分`;
+      document.getElementById('summary-overall-total').textContent = `総学習時間: ${data.summary.overallTotal} 分`;
+
+      drawStudentChart(data.yearlyData);
+      updateLogTable(data.logs);
+      updateGoalHistoryTable(data.goalHistory);
+    }
+
+    function drawStudentChart(yearlyData) {
+      const data = google.visualization.arrayToDataTable(yearlyData);
+      const options = {
+          title: '今年の月別勉強時間 (分)',
+          legend: { position: 'none' },
+          hAxis: { title: '月' },
+          vAxis: { title: '勉強時間 (分)', minValue: 0 },
+          seriesType: 'bars',
+          series: { 1: { type: 'line' } }
+      };
+      const chart = new google.visualization.ComboChart(document.getElementById('chart_div_admin'));
+      chart.draw(data, options);
+    }
+
+    function updateLogTable(logs) {
+      const container = document.getElementById('log-table-container');
+      container.innerHTML = '';
+      if (logs.length === 0) {
+        container.textContent = '入退室の記録はありません。';
+        return;
+      }
+      const table = document.createElement('table');
+      table.className = 'status-table';
+      const thead = table.createTHead();
+      const headerRow = thead.insertRow();
+      ['日時', 'アクション'].forEach(text => {
+        const th = document.createElement('th');
+        th.textContent = text;
+        headerRow.appendChild(th);
+      });
+      const tbody = table.createTBody();
+      logs.forEach(log => {
+        const row = tbody.insertRow();
+        row.insertCell().textContent = log.timestamp;
+        row.insertCell().textContent = log.action;
+      });
+      container.appendChild(table);
+    }
+
+    function updateGoalHistoryTable(history) {
+      const container = document.getElementById('goal-history-container');
+      container.innerHTML = '';
+      if (!history || history.length === 0) {
+        container.innerHTML = '<p>目標の履歴はありません。</p>';
+        return;
+      }
+
+      const table = document.createElement('table');
+      table.className = 'status-table goal-history-table';
+      table.innerHTML = `<thead><tr><th>年月</th><th>目標</th><th>振り返り</th><th>コーチのコメント</th></tr></thead>`;
+      const tbody = table.createTBody();
+
+      history.forEach(item => {
+        const studentId = document.getElementById('student-select').value;
+        const row = tbody.insertRow();
+        row.innerHTML = `
+          <td>${item.year}年 ${item.month}月</td>
+          <td>${escapeHtml(item.goal)}</td>
+          <td>${escapeHtml(item.reflection)}</td>
+          <td>
+            <textarea id="comment-${studentId}-${item.year}-${item.month}">${escapeHtml(item.comment)}</textarea>
+            <button class="btn-save" onclick="saveComment('${studentId}', ${item.year}, ${item.month})">保存</button>
+          </td>
+        `;
+      });
+      container.appendChild(table);
+    }
+
+    function saveComment(userId, year, month) {
+      const textarea = document.getElementById(`comment-${userId}-${year}-${month}`);
+      const button = textarea.nextElementSibling;
+      const comment = textarea.value;
+
+      button.disabled = true;
+      button.textContent = '保存中...';
+
+      const data = { userId, year, month, comment };
+
+      google.script.run
+        .withSuccessHandler(response => {
+          if (response.success) {
+            textarea.style.backgroundColor = '#d4edda';
+            setTimeout(() => { textarea.style.backgroundColor = ''; }, 2000);
+          } else {
+            alert('保存に失敗しました: ' + response.message);
+            textarea.style.backgroundColor = '#f8d7da';
+          }
+          button.disabled = false;
+          button.textContent = '保存';
+        })
+        .withFailureHandler(error => {
+          alert('エラーが発生しました: ' + error.message);
+          button.disabled = false;
+          button.textContent = '保存';
+        })
+        .saveCoachComment(data);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/[&<>"]'`]/g, function(match) {
+        return {
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '\"': '&quot;',
+          '\'': '&#39;',
+          '`': '&#x60;'
+        }[match];
+      });
+    }
+
+  </script>
+</body>
+</html>

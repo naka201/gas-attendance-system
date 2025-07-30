@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>自習室管理システム - ログイン</title>
+    <style>
+      html {
+        box-sizing: border-box;
+      }
+      *,
+      *::before,
+      *::after {
+        box-sizing: inherit;
+      }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; display: flex; justify-content: center; align-items: center; min-height: 90vh; font-size: 15px; }
+      .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
+      h1 { color: #333; margin-bottom: 20px; }
+      label { display: block; text-align: left; margin-bottom: 5px; color: #555; font-weight: bold; }
+      input[type="text"], input[type="password"] { font-size: 16px; width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px; }
+      button { font-size: 16px; background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; }
+      button:hover { background-color: #0056b3; }
+      .message { margin-top: 15px; padding: 12px; border-radius: 5px; font-size: 1.1em; display: none; } /* 調整 */
+      .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;}
+      .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;}
+      .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 15px auto; display: none; } /* 調整 */
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+      /* --- PC用のスタイル (画面幅が600px以上の場合) --- */
+      @media (min-width: 600px) {
+        body {
+          padding: 20px; /* PCでは元のpaddingに戻す */
+          font-size: 16px; /* PCでは元のfont-sizeに戻す */
+        }
+        .container {
+          padding: 30px; /* PCでは元のpaddingに戻す */
+          max-width: 400px; /* PCでは元のmax-widthに戻す */
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>自習室 入退室管理</h1>
+      <form id="loginForm">
+        <div>
+          <label for="userId">生徒ID:</label>
+          <input type="text" id="userId" name="userId" required>
+        </div>
+        <div>
+          <label for="password">パスワード:</label>
+          <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit">ログイン</button>
+      </form>
+      <div id="loader" class="loader"></div>
+      <div id="messageArea" class="message" style="display:none;"></div>
+    </div>
+
+    <script>
+      const webAppUrl = "<?!= webAppUrl ?>";
+
+      // ★修正: フォームの送信イベントを監視
+      document.getElementById('loginForm').addEventListener('submit', function(event) {
+        event.preventDefault(); // デフォルトのフォーム送信をキャンセル
+        handleLogin();
+      });
+
+      function handleLogin() {
+        const userId = document.getElementById('userId').value;
+        const password = document.getElementById('password').value;
+        const messageArea = document.getElementById('messageArea');
+        const loader = document.getElementById('loader');
+
+        if (!userId || !password) {
+          showMessage('生徒IDとパスワードを入力してください。', 'error');
+          return;
+        }
+
+        messageArea.style.display = 'none';
+        loader.style.display = 'block';
+        document.querySelector('button').disabled = true;
+
+        google.script.run
+          .withSuccessHandler(function(response) {
+            loader.style.display = 'none';
+            document.querySelector('button').disabled = false;
+            if (response.success) {
+              showMessage('ログイン成功！ページに移動します...', 'success');
+              let targetUrl;
+              if (response.isAdmin) {
+                targetUrl = webAppUrl + "?page=admin";
+              } else {
+                // ★修正: 目標設定が必要かどうかで分岐
+                if (response.goalStatus && response.goalStatus.required) {
+                  const gs = response.goalStatus;
+                  targetUrl = `${webAppUrl}?page=goal&userId=${encodeURIComponent(userId)}&studentName=${encodeURIComponent(response.studentName)}&lastMonthGoal=${encodeURIComponent(gs.lastMonthData.goal)}&currentYear=${gs.currentYear}&currentMonth=${gs.currentMonth}&lastMonthYear=${gs.lastMonthYear}&lastMonth=${gs.lastMonth}`;
+                } else {
+                  targetUrl = `${webAppUrl}?page=main&userId=${encodeURIComponent(userId)}&studentName=${encodeURIComponent(response.studentName)}`;
+                }
+              }
+              window.top.location.href = targetUrl;
+            } else {
+              showMessage(response.message, 'error');
+            }
+          })
+          .withFailureHandler(function(error) {
+            loader.style.display = 'none';
+            document.querySelector('button').disabled = false;
+            showMessage('エラーが発生しました: ' + error.message, 'error');
+          })
+          .authenticateUser(userId, password);
+      }
+
+      function showMessage(msg, type) {
+        const messageArea = document.getElementById('messageArea');
+        messageArea.textContent = msg;
+        messageArea.className = 'message ' + type;
+        messageArea.style.display = 'block';
+      }
+    </script>
+  </body>
+</html>

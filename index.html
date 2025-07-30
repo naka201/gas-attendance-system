@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>自習室管理システム</title>
+  <style>
+    html {
+      box-sizing: border-box;
+    }
+    *,
+    *::before,
+    *::after {
+      box-sizing: inherit;
+    }
+    /* --- 基本スタイル (モバイルファースト) --- */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      margin: 0;
+      padding: 10px;
+      background-color: #f8f9fa;
+      color: #212529;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 95vh;
+      font-size: 16px;
+    }
+    .container {
+      background-color: #ffffff;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 500px;
+      text-align: center;
+      box-sizing: border-box;
+    }
+    .header { margin-bottom: 15px; }
+    .header h1 { color: #343a40; font-size: 1.8em; margin-top: 0; margin-bottom: 0.5em; }
+    .header .date { font-size: 1em; color: #6c757d; margin-bottom: 1em; }
+    .study-info { margin-bottom: 15px; font-size: 1.1em; color: #495057; }
+    .study-info span { font-weight: bold; color: #007bff; font-size: 1.15em; }
+    #chart_div { width: 100%; height: 220px; margin: 15px auto; }
+    .buttons-container { display: flex; flex-direction: column; gap: 12px; margin-bottom: 15px; }
+    .action-button { background-color: #28a745; color: white; padding: 14px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 1.2em; font-weight: 500; width: 100%; box-sizing: border-box; transition: background-color 0.2s ease-in-out; }
+    .action-button.end { background-color: #dc3545; }
+    .action-button:hover:not(:disabled) { opacity: 0.85; }
+    .action-button:disabled { background-color: #adb5bd; cursor: not-allowed; }
+    .message { margin-top: 15px; padding: 12px; border-radius: 5px; font-size: 1.1em; display: none; }
+    .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .success { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
+    .loader { border: 4px solid #e9ecef; border-top: 4px solid #007bff; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 15px auto; display: none; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .logout-link { display: block; margin-top: 20px; color: #007bff; text-decoration: none; font-size: 1em; }
+    .logout-link:hover { text-decoration: underline; }
+
+    /* --- PC・タブレット用のスタイル (画面幅が600px以上の場合) --- */
+    @media (min-width: 600px) {
+      body { padding: 20px; background-color: #f8f9fa; }
+      .container { padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); max-width: 500px; }
+      .header h1 { font-size: 1.9em; }
+      .study-info { font-size: 1.15em; }
+      #chart_div { height: 260px; }
+      .buttons-container { flex-direction: row; gap: 15px; }
+      .action-button { font-size: 1.1em; padding: 15px 25px; }
+      .message { font-size: 0.95em; }
+      .logout-link { font-size: 0.9em; }
+    }
+
+    /* --- さらに大きい画面用のスタイル --- */
+    @media (min-width: 992px) {
+      .container { padding: 30px; }
+      .header h1 { font-size: 2em; }
+      #chart_div { height: 300px; }
+    }
+
+    /* ★目標セクションのスタイル */
+    .goal-section { 
+      text-align: left; 
+      margin-top: 25px; 
+      padding-top: 20px;
+      border-top: 1px solid #dee2e6;
+    }
+    .goal-section h2 { 
+      font-size: 1.4em; 
+      color: #343a40;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 8px;
+      margin-bottom: 15px;
+    }
+    .goal-box { 
+      background-color: #f8f9fa;
+      border-left: 4px solid #007bff;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 0 4px 4px 0;
+    }
+    .goal-box.last-month { 
+      border-left-color: #6c757d;
+    }
+    .goal-box p { margin: 0 0 10px 0; }
+    .goal-box p:last-child { margin-bottom: 0; }
+    .goal-box .label { font-weight: bold; color: #495057; display: block; margin-bottom: 5px; font-size: 0.95em; }
+    .goal-box .content { color: #212529; white-space: pre-wrap; word-wrap: break-word; }
+    .goal-box .comment { 
+      margin-top: 12px; 
+      padding-top: 12px; 
+      border-top: 1px dashed #ced4da;
+    }
+    .goal-box .comment .label { color: #c82333; }
+    .goal-box .comment .content { color: #c82333; }
+    #goal-loader { text-align: center; padding: 20px; color: #6c757d; }
+  </style>
+
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+  <script type="text/javascript">
+    google.charts.load('current', {'packages':['corechart']});
+    google.charts.setOnLoadCallback(drawChart);
+
+    function drawChart() {
+      try {
+        const yearlyDataArray = <?!= yearlyStudyDataJson ?>;
+        if (!yearlyDataArray || yearlyDataArray.length <= 1 || !Array.isArray(yearlyDataArray[0]) || yearlyDataArray[0].length < 3) {
+          document.getElementById('chart_div').innerHTML = '<p style="text-align:center; color: #777; padding-top: 50px;">今年の勉強時間の推移データがまだありません。</p>';
+          return;
+        }
+
+        const data = google.visualization.arrayToDataTable(yearlyDataArray);
+
+        const options = {
+          title: '今年の月別勉強時間 (分)',
+          titleTextStyle: {fontSize: 16, bold: true, color: '#333'},
+          legend: { position: 'none' },
+          hAxis: { title: '月', titleTextStyle: {italic: false, color: '#555'}, textStyle: {color: '#555'}},
+          vAxis: { title: '勉強時間 (分)', titleTextStyle: {italic: false, color: '#555'}, textStyle: {color: '#555'}, minValue: 0, gridlines: {color: '#eee'}},
+          animation:{ startup: true, duration: 1000, easing: 'out'},
+          seriesType: 'bars',
+          colors: ['#007bff'],
+          series: {
+            1: {
+              type: 'line',
+              color: '#28a745',
+              lineWidth: 2,
+              pointSize: 5,
+              targetAxisIndex: 0
+            }
+          },
+          bar: {groupWidth: "60%"}
+        };
+
+        const chart = new google.visualization.ComboChart(document.getElementById('chart_div'));
+        chart.draw(data, options);
+      } catch (e) {
+          console.error("Error drawing chart: ", e);
+          document.getElementById('chart_div').innerHTML = '<p style="text-align:center; color: red; padding-top: 50px;">グラフの表示中にエラーが発生しました。</p>';
+      }
+    }
+  </script>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1><?!= studentName ?> さん、こんにちは！</h1>
+      <p class="date"><?!= todayAsString ?></p>
+    </div>
+    <div class="study-info">
+      今月の勉強時間: <span><?!= monthlyStudyTime ?></span> 分
+    </div>
+    <div id="chart_div"></div>
+    <div class="buttons-container">
+      <button id="startButton" class="action-button" onclick="recordAction('開始')">自習開始</button>
+      <button id="endButton" class="action-button end" onclick="recordAction('終了')">自習終了</button>
+    </div>
+    <div id="loader" class="loader"></div>
+    <div id="messageArea" class="message"></div>
+
+    <!-- ★目標表示セクション -->
+    <div id="goal-display-section" class="goal-section">
+      <div id="goal-loader">目標を読み込んでいます...</div>
+      <!-- 目標データはここに動的に挿入されます -->
+    </div>
+
+    <a href="<?!= webAppUrl ?>" class="logout-link">ログアウト</a>
+  </div>
+
+  <script>
+    const userId = "<?!= userId ?>";
+    const studentName = "<?!= studentName ?>";
+    const webAppUrl = "<?!= webAppUrl ?>";
+    const loaderElement = document.getElementById('loader');
+    const messageAreaElement = document.getElementById('messageArea');
+    const startButtonElement = document.getElementById('startButton');
+    const endButtonElement = document.getElementById('endButton');
+
+    function recordAction(actionType) {
+      messageAreaElement.style.display = 'none';
+      messageAreaElement.textContent = '';
+      messageAreaElement.className = 'message';
+      loaderElement.style.display = 'block';
+      startButtonElement.disabled = true;
+      endButtonElement.disabled = true;
+      google.script.run
+        .withSuccessHandler(function(response) {
+          loaderElement.style.display = 'none';
+          startButtonElement.disabled = false;
+          endButtonElement.disabled = false;
+          if (response.success) {
+            showMessage(response.message, 'success');
+            if (actionType === '終了') {
+              setTimeout(function(){ window.top.location.reload(); }, 1000);
+            }
+          } else {
+            showMessage(response.message || 'エラーが発生しました。', 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          loaderElement.style.display = 'none';
+          startButtonElement.disabled = false;
+          endButtonElement.disabled = false;
+          showMessage('サーバーとの通信に失敗しました: ' + error.message, 'error');
+          console.error("Record action failure handler:", error);
+        })
+        .recordAction(userId, studentName, actionType);
+    }
+    function showMessage(msg, type) {
+      messageAreaElement.textContent = msg;
+      messageAreaElement.className = 'message ' + type;
+      messageAreaElement.style.display = 'block';
+    }
+    
+    document.addEventListener('DOMContentLoaded', function() {
+      google.script.run
+        .withSuccessHandler(displayGoalData)
+        .withFailureHandler(showGoalError)
+        .getGoalData(userId);
+    });
+
+    function displayGoalData(response) {
+      const loader = document.getElementById('goal-loader');
+      const container = document.getElementById('goal-display-section');
+      if(loader) loader.style.display = 'none';
+
+      if (!response.success) {
+        container.innerHTML = `<p class="error">目標の読み込みに失敗しました: ${response.message}</p>`;
+        return;
+      }
+
+      const data = response.data;
+      let html = '';
+
+      if (data && data.current) {
+        html += '<h2>今月の目標</h2>';
+        html += createGoalBox(data.current, '今月の目標');
+      } else {
+        html += '<h2>今月の目標</h2>';
+        html += '<p>今月の目標はまだ設定されていません。</p>';
+      }
+
+      if (data && data.last) {
+        html += '<h2 style="margin-top: 30px;">先月の目標と振り返り</h2>';
+        html += createGoalBox(data.last, '先月の目標', true);
+      }
+      
+      container.innerHTML = html;
+    }
+
+    function createGoalBox(goalData, title, isLastMonth = false) {
+      let boxHtml = `<div class="goal-box ${isLastMonth ? 'last-month' : ''}">
+                      <p><span class="label">${title}:</span><span class="content">${escapeHtml(goalData.goal) || '（未設定）'}</span></p>`;
+      if (isLastMonth) {
+        boxHtml += `<p><span class="label">振り返り:</span><span class="content">${escapeHtml(goalData.reflection) || '（未入力）'}</span></p>`;
+      }
+      if (goalData.comment) {
+        boxHtml += `<div class="comment"><p><span class="label">コーチからのコメント:</span><span class="content">${escapeHtml(goalData.comment)}</span></p></div>`;
+      }
+      boxHtml += `</div>`;
+      return boxHtml;
+    }
+
+    function showGoalError(error) {
+      const loader = document.getElementById('goal-loader');
+      if(loader) loader.style.display = 'none';
+      const container = document.getElementById('goal-display-section');
+      container.innerHTML = '<p class="error">目標の読み込み中にエラーが発生しました。</p>';
+      console.error("Goal fetch error:", error);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/[&<>"'`]/g, function(match) {
+        return {
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+          '`': '&#x60;'
+        }[match];
+      });
+    }
+
+    let resizeTimer;
+    window.addEventListener('resize', function() {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(drawChart, 250);
+    });
+  </script>
+</body>
+</html>
