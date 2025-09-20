@@ -1,12 +1,13 @@
 // ----------------------------------------
 // グローバル設定
 // ----------------------------------------
-//const SPREADSHEET_ID = '1xEg4Cth_rosTqgj0nMrwZ-cOBduCoX2mi6B-SyUVoUo'; // メイン用
-const SPREADSHEET_ID = '1qTSkENn-CxotdKvoetRF7CthWSzsOHbDMzdQexslGV4'; // コード修正用
+const SPREADSHEET_ID = '1xEg4Cth_rosTqgj0nMrwZ-cOBduCoX2mi6B-SyUVoUo'; // メイン用
+// const SPREADSHEET_ID = '1qTSkENn-CxotdKvoetRF7CthWSzsOHbDMzdQexslGV4'; // コード修正用
 const SHEET_STUDENT_MASTER = '生徒マスタ';
 const SHEET_ATTENDANCE_LOG = '入退室記録';
 const SHEET_SUMMARY = '学習時間サマリー';
-const SHEET_MONTHLY_SUMMARY = '月別学習時間集計(テスト)';
+const SHEET_MONTHLY_SUMMARY = '月別学習時間集計';
+//const SHEET_MONTHLY_SUMMARY = '月別学習時間集計(テスト)';
 const SHEET_CURRENT_STATUS = '学習状況';
 const SHEET_GOAL = '目標管理';
 
@@ -18,7 +19,6 @@ const SHEET_GOAL = '目標管理';
  * @param {*} value - 日時データ (Dateオブジェクト、文字列など)
  * @returns {Date|null} - 有効なDateオブジェクト、または無効な場合はnull
  */
-
 function getValidDate(value) {
   // 1. 既に有効なDateオブジェクトの場合、そのまま返す
   if (value instanceof Date && !isNaN(value.getTime())) {
@@ -46,7 +46,6 @@ function getValidDate(value) {
 function doGet(e) {
   Logger.log('doGet called with parameters: ' + JSON.stringify(e.parameter));
   const page = e.parameter.page;
-
   if (page === 'admin') {
     return showAdminPage(e);
   } else if (page === 'main') {
@@ -79,77 +78,80 @@ function showMainPage(e) {
   if (!e.parameter.userId || !e.parameter.studentName) {
     return showLoginPage(e);
   }
-  Logger.log('Rendering main page for user: ' + e.parameter.userId);
-  const template = HtmlService.createTemplateFromFile('index');
-  template.userId = e.parameter.userId;
-  template.studentName = decodeURIComponent(e.parameter.studentName);
-  template.webAppUrl = ScriptApp.getService().getUrl();
-
-  const today = new Date();
-  const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
-  template.todayAsString = Utilities.formatString("%d年%02d月%02d日（%s）", today.getFullYear(), today.getMonth() + 1, today.getDate(), weekdays[today.getDay()]);
-
-  let monthlyStudyTime = 0;
-  const yearlyStudyData = [['月', '勉強時間(実績)', 'トレンドライン']];
-  const monthNames = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
-  const yearlyActualTotals = Array(12).fill(0);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
 
   try {
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const summarySheet = spreadsheet.getSheetByName(SHEET_SUMMARY);
-    const monthlyAggregationSheet = spreadsheet.getSheetByName(SHEET_MONTHLY_SUMMARY);
+    Logger.log('Rendering main page for user: ' + e.parameter.userId);
+    const template = HtmlService.createTemplateFromFile('index');
+    template.userId = e.parameter.userId;
+    template.studentName = decodeURIComponent(e.parameter.studentName);
+    template.webAppUrl = ScriptApp.getService().getUrl();
 
-    if (summarySheet) {
-      const summaryData = summarySheet.getDataRange().getValues();
-      for (let i = 1; i < summaryData.length; i++) {
-        if (summaryData[i][0] && summaryData[i][0].toString().trim() === e.parameter.userId.trim()) {
-          monthlyStudyTime = parseFloat(summaryData[i][6]) || 0;
-          break;
-        }
-      }
-    }
+    const today = new Date();
+    const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+    template.todayAsString = Utilities.formatString("%d年%02d月%02d日（%s）", today.getFullYear(), today.getMonth() + 1, today.getDate(), weekdays[today.getDay()]);
 
-    if (monthlyAggregationSheet) {
-      const monthlyData = monthlyAggregationSheet.getDataRange().getValues();
-      const currentYearStr = today.getFullYear().toString();
-      for (let i = 1; i < monthlyData.length; i++) {
-        const rowUserId = monthlyData[i][0] ? monthlyData[i][0].toString().trim() : '';
-        let processedYearMonth = '';
-        if (monthlyData[i][2]) {
-          const dt = getValidDate(monthlyData[i][2]);
-          if (dt) {
-            processedYearMonth = Utilities.formatDate(dt, Session.getScriptTimeZone(), 'yyyy-MM');
-          } else {
-            processedYearMonth = monthlyData[i][2].toString().substring(0, 7).trim();
-          }
-        }
-        const rowMonthlyMinutes = parseFloat(monthlyData[i][3]) || 0;
-        if (rowUserId === e.parameter.userId.trim() && processedYearMonth.startsWith(currentYearStr + "-")) {
-          const monthPart = parseInt(processedYearMonth.split('-')[1], 10);
-          if (monthPart >= 1 && monthPart <= 12) {
-            yearlyActualTotals[monthPart - 1] = rowMonthlyMinutes;
+    let monthlyStudyTime = 0;
+    const yearlyStudyData = [['月', '勉強時間(実績)', 'トレンドライン']];
+    const monthNames = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+    const yearlyActualTotals = Array(12).fill(0);
+    try {
+      const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+      const summarySheet = spreadsheet.getSheetByName(SHEET_SUMMARY);
+      const monthlyAggregationSheet = spreadsheet.getSheetByName(SHEET_MONTHLY_SUMMARY);
+      if (summarySheet) {
+        const summaryData = summarySheet.getDataRange().getValues();
+        for (let i = 1; i < summaryData.length; i++) {
+          if (summaryData[i][0] && summaryData[i][0].toString().trim() === e.parameter.userId.trim()) {
+            monthlyStudyTime = parseFloat(summaryData[i][6]) || 0;
+            break;
           }
         }
       }
+
+      if (monthlyAggregationSheet) {
+        const monthlyData = monthlyAggregationSheet.getDataRange().getValues();
+        const currentYearStr = today.getFullYear().toString();
+        for (let i = 1; i < monthlyData.length; i++) {
+          const rowUserId = monthlyData[i][0] ? monthlyData[i][0].toString().trim() : '';
+          let processedYearMonth = '';
+          if (monthlyData[i][2]) {
+            const dt = getValidDate(monthlyData[i][2]);
+            if (dt) {
+              processedYearMonth = Utilities.formatDate(dt, Session.getScriptTimeZone(), 'yyyy-MM');
+            } else {
+              processedYearMonth = monthlyData[i][2].toString().substring(0, 7).trim();
+            }
+          }
+          const rowMonthlyMinutes = parseFloat(monthlyData[i][3]) || 0;
+          if (rowUserId === e.parameter.userId.trim() && processedYearMonth.startsWith(currentYearStr + "-")) {
+            const monthPart = parseInt(processedYearMonth.split('-')[1], 10);
+            if (monthPart >= 1 && monthPart <= 12) {
+              yearlyActualTotals[monthPart - 1] = rowMonthlyMinutes;
+            }
+          }
+        }
+      }
+
+      yearlyActualTotals[today.getMonth()] = monthlyStudyTime;
+      for (let i = 0; i < 12; i++) {
+        yearlyStudyData.push([monthNames[i], yearlyActualTotals[i], yearlyActualTotals[i]]);
+      }
+      template.yearlyStudyDataJson = JSON.stringify(yearlyStudyData);
+      template.monthlyStudyTime = monthlyStudyTime;
+    } catch (err) {
+      Logger.log('Error fetching study data for main page: ' + err.toString());
+      template.monthlyStudyTime = 0;
+      const emptyYearlyData = [['月', '勉強時間(実績)', 'トレンドライン']];
+      for(let i=0; i<12; i++) { emptyYearlyData.push([monthNames[i], 0, 0]);}
+      template.yearlyStudyDataJson = JSON.stringify(emptyYearlyData);
     }
-
-    yearlyActualTotals[today.getMonth()] = monthlyStudyTime;
-
-    for (let i = 0; i < 12; i++) {
-      yearlyStudyData.push([monthNames[i], yearlyActualTotals[i], yearlyActualTotals[i]]);
-    }
-    template.yearlyStudyDataJson = JSON.stringify(yearlyStudyData);
-    template.monthlyStudyTime = monthlyStudyTime;
-
-  } catch (err) {
-    Logger.log('Error fetching study data for main page: ' + err.toString());
-    template.monthlyStudyTime = 0;
-    const emptyYearlyData = [['月', '勉強時間(実績)', 'トレンドライン']];
-    for(let i=0; i<12; i++) { emptyYearlyData.push([monthNames[i], 0, 0]);}
-    template.yearlyStudyDataJson = JSON.stringify(emptyYearlyData);
+    
+    return template.evaluate().setTitle('自習室管理システム');
+  } finally {
+    lock.releaseLock();
   }
-  
-  return template.evaluate().setTitle('自習室管理システム');
 }
 
 function showGoalPage(e) {
@@ -171,7 +173,12 @@ function showGoalPage(e) {
 }
 
 function authenticateUser(userId, password) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
+    // ▼▼▼ ログ追加 ▼▼▼
+    Logger.log(`[認証開始] ユーザーID: ${userId}`);
+
     if (userId === 'admin' && password === 'admin_password') {
       return { success: true, isAdmin: true };
     }
@@ -182,9 +189,12 @@ function authenticateUser(userId, password) {
     for (let i = 1; i < data.length; i++) {
       if (data[i][0].toString().trim() === userId.trim() && data[i][2].toString() === password) {
         const studentName = data[i][1].toString();
-        Logger.log(`Authentication successful for ${studentName}`);
+        Logger.log(`[認証成功] 生徒名: ${studentName}`);
         
         const goalStatus = checkGoalSettingStatus(userId);
+        // ▼▼▼ ログ追加 ▼▼▼
+        Logger.log(`[目標チェック結果] goalStatus: ${JSON.stringify(goalStatus)}`);
+        
         return { 
           success: true, 
           isAdmin: false, 
@@ -193,39 +203,64 @@ function authenticateUser(userId, password) {
         };
       }
     }
-    Logger.log('Authentication failed for user: ' + userId);
+    Logger.log('[認証失敗] 生徒IDまたはパスワードが不正');
     return { success: false, message: '生徒IDまたはパスワードが正しくありません。' };
   } catch (error) {
-    Logger.log('Authentication error: ' + error.toString());
+    Logger.log(`[認証エラー] ${error.toString()}`);
     return { success: false, message: `認証エラー: ${error.message}` };
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function checkGoalSettingStatus(userId) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
+    // ▼▼▼ ログ追加 ▼▼▼
+    Logger.log(`[目標チェック開始] ユーザーID: ${userId}`);
+
     const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_GOAL);
     if (!sheet) {
-      Logger.log('目標管理シートが見つからないため、目標設定をスキップします。');
+      Logger.log('[目標チェック] 目標管理シートが見つかりません。スキップします。');
       return { required: false };
     }
     
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth() + 1;
+    // ▼▼▼ ログ追加 ▼▼▼
+    Logger.log(`[目標チェック] 現在の年月: ${currentYear}年${currentMonth}月`);
     
     const data = sheet.getDataRange().getValues();
-    const currentMonthGoalExists = data.slice(1).some(row => 
-      row[0].toString().trim() === userId && 
-      parseInt(row[2], 10) === currentYear && 
-      parseInt(row[3], 10) === currentMonth
-    );
     
+    // ▼▼▼ ログ追加 ▼▼▼
+    Logger.log('[目標チェック] シートの各行と現在の年月を比較します...');
+    
+    const currentMonthGoalExists = data.slice(1).some(row => {
+      const rowUserId = row[0].toString().trim();
+      const rowYear = parseInt(row[2], 10);
+      const rowMonth = parseInt(row[3], 10);
+      const isMatch = (rowUserId === userId && rowYear === currentYear && rowMonth === currentMonth);
+      
+      // ▼▼▼ ログ追加 ▼▼▼
+      // 比較対象のユーザーIDが一致する場合のみログを出力し、ログが煩雑になるのを防ぐ
+      if (rowUserId === userId) {
+        Logger.log(`  - シートの値: {id: ${rowUserId}, year: ${row[2]}, month: ${row[3]}} | 比較結果: ${isMatch}`);
+      }
+      
+      return isMatch;
+    });
+
+    // ▼▼▼ ログ追加 ▼▼▼
+    Logger.log(`[目標チェック] 最終判定: 今月の目標は存在しますか？ -> ${currentMonthGoalExists}`);
+
     if (!currentMonthGoalExists) {
+      Logger.log('[目標チェック] 結果: 目標設定が必要です。');
       const lastMonthDate = new Date(today.getFullYear(), today.getMonth(), 0);
       const lastMonthYear = lastMonthDate.getFullYear();
       const lastMonth = lastMonthDate.getMonth() + 1;
       let lastMonthData = { goal: '', reflection: '', comment: '' };
-      
       const lastMonthRow = data.slice(1).find(row =>
         row[0].toString().trim() === userId && 
         parseInt(row[2], 10) === lastMonthYear && 
@@ -244,15 +279,24 @@ function checkGoalSettingStatus(userId) {
         lastMonth: lastMonth
       };
     }
+
+    Logger.log('[目標チェック] 結果: 目標設定は不要です。');
     return { required: false };
   } catch (e) {
-    Logger.log(`Error in checkGoalSettingStatus for ${userId}: ${e}`);
+    Logger.log(`[目標チェックエラー] ${e.toString()}`);
     return { required: false, error: e.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function saveGoalAndReflection(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
+    // ▼▼▼ ログ追加 ▼▼▼
+    Logger.log(`[目標保存開始] 受信データ: ${JSON.stringify(data)}`);
+
     const { userId, currentYear, currentMonth, newGoal, lastMonthYear, lastMonth, reflection } = data;
     const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_GOAL);
     if (!sheet) throw new Error("目標管理シートが見つかりません。");
@@ -277,14 +321,19 @@ function saveGoalAndReflection(data) {
     sheet.appendRow([userId, studentName, currentYear.toString(), currentMonth.toString(), newGoal, '', '']);
     Logger.log(`${studentName}の${currentYear}年${currentMonth}月の目標を追加しました。`);
     
+    Logger.log(`[目標保存完了]`);
     return { success: true };
   } catch (e) {
-    Logger.log(`Error in saveGoalAndReflection: ${e}`);
+    Logger.log(`[目標保存エラー] ${e.toString()}`);
     return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function saveCoachComment(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
     const { userId, year, month, comment } = data;
     const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_GOAL);
@@ -307,11 +356,18 @@ function saveCoachComment(data) {
   } catch (e) {
     Logger.log(`Error in saveCoachComment: ${e}`);
     return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function getGoalData(userId) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
+    // ▼▼▼ ログ追加 ▼▼▼
+    Logger.log(`[目標データ取得開始] ユーザーID: ${userId}`);
+
     const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_GOAL);
     if (!sheet) return { success: true, data: null };
     const today = new Date();
@@ -320,6 +376,10 @@ function getGoalData(userId) {
     const lastMonthDate = new Date(today.getFullYear(), today.getMonth(), 0);
     const lastMonthYear = lastMonthDate.getFullYear();
     const lastMonth = lastMonthDate.getMonth() + 1;
+
+    // ▼▼▼ ログ追加 ▼▼▼
+    Logger.log(`[目標データ取得] 検索対象: ${currentYear}年${currentMonth}月 と ${lastMonthYear}年${lastMonth}月`);
+
     const allData = sheet.getDataRange().getValues();
     let currentGoalData = null;
     let lastMonthGoalData = null;
@@ -342,14 +402,22 @@ function getGoalData(userId) {
       }
       if (currentGoalData && lastMonthGoalData) break;
     }
+    
+    // ▼▼▼ ログ追加 ▼▼▼
+    Logger.log(`[目標データ取得] 検索結果: {今月データ: ${currentGoalData ? 'あり' : 'なし'}, 先月データ: ${lastMonthGoalData ? 'あり' : 'なし'}}`);
+    
     return { success: true, data: { current: currentGoalData, last: lastMonthGoalData } };
   } catch (e) {
-    Logger.log(`Error in getGoalData for ${userId}: ${e}`);
+    Logger.log(`[目標データ取得エラー] ${e.toString()}`);
     return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function getStudentsNeedingComment() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
     const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_GOAL);
     if (!sheet) return { success: false, message: '目標管理シートが見つかりません。' };
@@ -377,6 +445,8 @@ function getStudentsNeedingComment() {
   } catch (e) {
     Logger.log(`Error in getStudentsNeedingComment: ${e.toString()}`);
     return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -406,7 +476,6 @@ function setStudentLearningStatus(userId, studentName, startTime, statusSheet) {
   const status = getStudentCurrentStatus(userId, statusSheet);
   // ★★★ 先頭にシングルクォートを追加して、強制的に文字列として書き込む ★★★
   const startTimeStr = "'" + Utilities.formatDate(startTime, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-  
   if (status) {
     // C列とD列を一度に更新
     statusSheet.getRange(status.rowIndex + 1, 3, 1, 2).setValues([[true, startTimeStr]]);
@@ -427,49 +496,51 @@ function clearStudentLearningStatus(userId, statusSheet) {
 }
 
 function recordAction(userId, studentName, action, options = {}) {
-  const endTime = options.endTime || new Date();
-  // ★★★ 先頭にシングルクォートを追加 ★★★
-  const timestamp = "'" + Utilities.formatDate(endTime, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-  const dateStr = Utilities.formatDate(endTime, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  
-  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const logSheet = spreadsheet.getSheetByName(SHEET_ATTENDANCE_LOG);
-  const summarySheet = spreadsheet.getSheetByName(SHEET_SUMMARY);
-  const statusSheet = spreadsheet.getSheetByName(SHEET_CURRENT_STATUS);
-
-  if (!logSheet || !summarySheet || !statusSheet) {
-    return { success: false, message: '必要なシートが見つかりません。' };
-  }
-
-  const currentStatus = getStudentCurrentStatus(userId, statusSheet);
-  
-  if (action === '開始') {
-    if (currentStatus && currentStatus.isLearning) {
-      const alreadyStartedTime = currentStatus.startTime ? Utilities.formatDate(currentStatus.startTime, Session.getScriptTimeZone(), 'HH:mm') : "不明";
-      return { success: false, message: `既に ${alreadyStartedTime} から学習を開始しています。` };
-    }
-    setStudentLearningStatus(userId, studentName, new Date(), statusSheet);
-    // ★★★ こちらの書き込みにもシングルクォートを追加 ★★★
-    logSheet.appendRow(["'" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'), userId, studentName, action, dateStr]);
-    return { success: true, message: `${studentName}さんの学習を開始しました。(${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm')})` };
-
-  } else if (action === '終了') {
-    if (!currentStatus || !currentStatus.isLearning || !currentStatus.startTime) {
-      return { success: false, message: 'まだ学習を開始していません。' };
-    }
-    const startTime = currentStatus.startTime;
-    let sessionMinutes = 0;
-    if (startTime) { // startTimeがnullでないことを確認
-      sessionMinutes = Math.round((endTime.getTime() - startTime.getTime()) / (1000 * 60));
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const endTime = options.endTime || new Date();
+    // ★★★ 先頭にシングルクォートを追加 ★★★
+    const timestamp = "'" + Utilities.formatDate(endTime, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+    const dateStr = Utilities.formatDate(endTime, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const logSheet = spreadsheet.getSheetByName(SHEET_ATTENDANCE_LOG);
+    const summarySheet = spreadsheet.getSheetByName(SHEET_SUMMARY);
+    const statusSheet = spreadsheet.getSheetByName(SHEET_CURRENT_STATUS);
+    if (!logSheet || !summarySheet || !statusSheet) {
+        return { success: false, message: '必要なシートが見つかりません。' };
     }
-    
-    clearStudentLearningStatus(userId, statusSheet);
-    logSheet.appendRow([timestamp, userId, studentName, action, dateStr]);
-    updateStudentSummaryAfterSession(userId, studentName, dateStr, sessionMinutes, summarySheet, logSheet);
-    
-    return { success: true, message: `${studentName}さんの学習を終了しました。今回の学習時間: ${sessionMinutes}分` };
-  }
-  return { success: false, message: '不明な操作です。' };
+
+    const currentStatus = getStudentCurrentStatus(userId, statusSheet);
+      
+    if (action === '開始') {
+        if (currentStatus && currentStatus.isLearning) {
+          const alreadyStartedTime = currentStatus.startTime ? Utilities.formatDate(currentStatus.startTime, Session.getScriptTimeZone(), 'HH:mm') : "不明";
+          return { success: false, message: `既に ${alreadyStartedTime} から学習を開始しています。` };
+        }
+        setStudentLearningStatus(userId, studentName, new Date(), statusSheet);
+      // ★★★ こちらの書き込みにもシングルクォートを追加 ★★★
+        logSheet.appendRow(["'" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'), userId, studentName, action, dateStr]);
+      return { success: true, message: `${studentName}さんの学習を開始しました。(${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm')})` };
+    } else if (action === '終了') {
+        if (!currentStatus || !currentStatus.isLearning || !currentStatus.startTime) {
+          return { success: false, message: 'まだ学習を開始していません。' };
+        }
+        const startTime = currentStatus.startTime;
+        let sessionMinutes = 0;
+        if (startTime) { // startTimeがnullでないことを確認
+        sessionMinutes = Math.round((endTime.getTime() - startTime.getTime()) / (1000 * 60));
+        }
+        
+        clearStudentLearningStatus(userId, statusSheet);
+        logSheet.appendRow([timestamp, userId, studentName, action, dateStr]);
+        updateStudentSummaryAfterSession(userId, studentName, dateStr, sessionMinutes, summarySheet, logSheet);
+      return { success: true, message: `${studentName}さんの学習を終了しました。今回の学習時間: ${sessionMinutes}分` };
+    }
+    return { success: false, message: '不明な操作です。' };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function updateStudentSummaryAfterSession(userId, studentName, currentActionDateStr, sessionMinutes, summarySheet, attendanceLogSheet) {
@@ -488,14 +559,12 @@ function updateStudentSummaryAfterSession(userId, studentName, currentActionDate
     let logActionDateStr = '';
     const dateVal = getValidDate(logData[i][4]);
     if (dateVal) logActionDateStr = Utilities.formatDate(dateVal, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-    
     if (logData[i][1] && logData[i][1].toString().trim() === userId.trim() && logActionDateStr === currentActionDateStr.trim()) {
       const ts = getValidDate(logData[i][0]);
       if (ts) userRecordsForToday.push({ timestamp: ts, action: logData[i][3] });
     }
   }
   userRecordsForToday.sort((a, b) => a.timestamp - b.timestamp);
-
   let todayFirstStartTimeStr = '';
   let todayLastEndTimeStr = '';
   const firstStartRec = userRecordsForToday.find(r => r.action === '開始');
@@ -503,7 +572,6 @@ function updateStudentSummaryAfterSession(userId, studentName, currentActionDate
   
   const endRecs = userRecordsForToday.filter(r => r.action === '終了');
   if (endRecs.length > 0) todayLastEndTimeStr = Utilities.formatDate(endRecs[endRecs.length - 1].timestamp, Session.getScriptTimeZone(), 'HH:mm:ss');
-  
   let currentDaily = 0, currentMonthly = 0, currentOverall = 0, prevDateStr = "";
   if (summaryRowIndex !== -1) {
     prevDateStr = summaryData[summaryRowIndex][2] ? summaryData[summaryRowIndex][2].toString().trim() : "";
@@ -519,7 +587,6 @@ function updateStudentSummaryAfterSession(userId, studentName, currentActionDate
   currentMonthly = (prevMonthStr === currentMonthStr) ? currentMonthly + sessionMinutes : currentDaily;
 
   currentOverall += sessionMinutes;
-
   if (summaryRowIndex !== -1) {
     summarySheet.getRange(summaryRowIndex + 1, 3, 1, 6).setValues([[currentActionDateStr, todayFirstStartTimeStr, todayLastEndTimeStr, currentDaily, currentMonthly, currentOverall]]);
   } else {
@@ -532,6 +599,8 @@ function updateStudentSummaryAfterSession(userId, studentName, currentActionDate
 // 管理者向け・補助関数
 // ----------------------------------------
 function getRealTimeStatus() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
     const statusSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_CURRENT_STATUS);
     if (!statusSheet) throw new Error("「学習状況」シートが見つかりません。");
@@ -539,7 +608,6 @@ function getRealTimeStatus() {
     const data = statusSheet.getDataRange().getValues();
     const learningStudents = [];
     const now = new Date();
-
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       if (row[2] === true) { // C列がtrueの行のみを対象
@@ -559,10 +627,14 @@ function getRealTimeStatus() {
   } catch (error) {
     Logger.log('Error in getRealTimeStatus: ' + error.toString());
     return { success: false, message: error.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function forceEndStudy(userId) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
     const studentName = getStudentNameById(userId);
     if (!studentName) throw new Error(`生徒IDが見つかりません: ${userId}`);
@@ -570,28 +642,37 @@ function forceEndStudy(userId) {
   } catch (error) {
     Logger.log(`Error in forceEndStudy for ${userId}: ` + error.toString());
     return { success: false, message: error.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function autoEndOverdueStudiesAt2230() {
-  const statusSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_CURRENT_STATUS);
-  if (!statusSheet) return;
-
-  const data = statusSheet.getDataRange().getValues();
-  const now = new Date();
-  
-  for (let i = data.length - 1; i >= 1; i--) {
-    if (data[i][2] === true) {
-      const endTime = new Date();
-      endTime.setHours(22, 30, 0, 0);
-      if (now >= endTime) {
-        recordAction(data[i][0], data[i][1], '終了', { endTime: endTime });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const statusSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_CURRENT_STATUS);
+    if (!statusSheet) return;
+    const data = statusSheet.getDataRange().getValues();
+    const now = new Date();
+    
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (data[i][2] === true) {
+        const endTime = new Date();
+        endTime.setHours(22, 30, 0, 0);
+        if (now >= endTime) {
+          recordAction(data[i][0], data[i][1], '終了', { endTime: endTime });
+        }
       }
     }
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function getAllStudents() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
     const masterSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_STUDENT_MASTER);
     if (!masterSheet) throw new Error("「生徒マスタ」シートが見つかりません。");
@@ -600,68 +681,127 @@ function getAllStudents() {
   } catch (error) {
     Logger.log('Error in getAllStudents: ' + error.toString());
     return { success: false, message: error.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function getStudentData(userId) {
-  try {
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const summarySheet = spreadsheet.getSheetByName(SHEET_SUMMARY);
-    const monthlySheet = spreadsheet.getSheetByName(SHEET_MONTHLY_SUMMARY);
-    const logSheet = spreadsheet.getSheetByName(SHEET_ATTENDANCE_LOG);
-    const goalSheet = spreadsheet.getSheetByName(SHEET_GOAL);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const summarySheet = spreadsheet.getSheetByName(SHEET_SUMMARY);
+    const monthlySheet = spreadsheet.getSheetByName(SHEET_MONTHLY_SUMMARY);
+    const logSheet = spreadsheet.getSheetByName(SHEET_ATTENDANCE_LOG);
+    const goalSheet = spreadsheet.getSheetByName(SHEET_GOAL);
 
-    let summary = { isDataFound: false };
-    const summaryData = summarySheet.getDataRange().getValues();
-    for (let i = 1; i < summaryData.length; i++) {
-      if (summaryData[i][0] && summaryData[i][0].toString().trim() === userId) {
-        const lastActivityDate = getValidDate(summaryData[i][2]);
-        summary = {
-          isDataFound: true,
-          lastActivityDate: lastActivityDate ? Utilities.formatDate(lastActivityDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '記録なし',
-          monthlyTotal: summaryData[i][6] || 0,
-          overallTotal: summaryData[i][7] || 0
-        };
-        break;
-      }
-    }
+    // 1. サマリー取得
+    let summary = { isDataFound: false };
+    const summaryData = summarySheet.getDataRange().getValues();
+    for (let i = 1; i < summaryData.length; i++) {
+      if (summaryData[i][0] && summaryData[i][0].toString().trim() === userId) {
+        const lastActivityDate = getValidDate(summaryData[i][2]);
+        summary = {
+          isDataFound: true,
+          lastActivityDate: lastActivityDate ? Utilities.formatDate(lastActivityDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '記録なし',
+          monthlyTotal: summaryData[i][6] || 0,
+          overallTotal: summaryData[i][7] || 0
+        };
+        break;
+      }
+    }
 
-    const yearlyStudyData = [['月', '勉強時間(実績)', 'トレンドライン']];
-    if(summary.isDataFound) {
-      // (年間グラフデータのロジックは変更なし)
-    }
+    // 2. 年間グラフデータ取得
+    const yearlyStudyData = [['月', '勉強時間(実績)', 'トレンドライン']];
+    const monthNames = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+    if (summary.isDataFound) {
+      const yearlyTotals = Array(12).fill(0);
+      const currentYearStr = new Date().getFullYear().toString();
 
-    const logs = [];
-    if(summary.isDataFound) {
-      const logData = logSheet.getDataRange().getValues();
-      for (let i = logData.length - 1; i >= 1; i--) {
-        if (logData[i][1] && logData[i][1].toString().trim() === userId) {
-          const ts = getValidDate(logData[i][0]);
-          if (ts) {
-            logs.push({
-              timestamp: Utilities.formatDate(ts, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'),
-              action: logData[i][3]
-            });
-          }
-          if (logs.length >= 50) break; 
-        }
-      }
-    }
-    
-    // (目標履歴取得のロジックは変更なし)
-    const goalHistory = [];
-    
-    return { 
-      success: true, 
-      data: { summary, yearlyData: yearlyStudyData, logs, goalHistory }
-    };
-  } catch (error) {
-    Logger.log(`Error in getStudentData for ${userId}: ` + error.toString());
-    return { success: false, message: error.toString() };
+      const monthlyData = monthlySheet.getDataRange().getValues();
+      for (let i = 1; i < monthlyData.length; i++) {
+        const rowUserId = monthlyData[i][0] ? monthlyData[i][0].toString().trim() : '';
+        const yearMonth = monthlyData[i][2] ? monthlyData[i][2].toString() : '';
+        if (rowUserId === userId && yearMonth.startsWith(currentYearStr)) {
+          const monthIndex = parseInt(yearMonth.split('-')[1], 10) - 1;
+          if(monthIndex >= 0 && monthIndex < 12){
+              yearlyTotals[monthIndex] = parseFloat(monthlyData[i][3]) || 0;
+          }
+        }
+      }
+      yearlyTotals[new Date().getMonth()] = summary.monthlyTotal;
+      for (let i = 0; i < 12; i++) {
+          yearlyStudyData.push([monthNames[i], yearlyTotals[i], yearlyTotals[i]]);
+      }
+    } else {
+      // ★★★ ここが修正点 ★★★
+      // データが見つからない場合（新規生徒など）は、全て0のグラフデータを作成する
+      for (let i = 0; i < 12; i++) {
+        yearlyStudyData.push([monthNames[i], 0, 0]);
+      }
+    }
+
+    // 3. 入退室ログ取得
+    const logs = [];
+    if(summary.isDataFound) {
+        const logData = logSheet.getDataRange().getValues();
+        for (let i = logData.length - 1; i >= 1; i--) {
+          if (logData[i][1] && logData[i][1].toString().trim() === userId) {
+            const ts = getValidDate(logData[i][0]);
+            if (ts) {
+              logs.push({
+                timestamp: Utilities.formatDate(ts, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'),
+                action: logData[i][3]
+              });
+            }
+            if (logs.length >= 50) break;
+          }
+        }
+    }
+    
+    // 4. 目標履歴取得 (過去1年分)
+    const goalHistory = [];
+    if (goalSheet) {
+      const goalData = goalSheet.getDataRange().getValues();
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      oneYearAgo.setDate(1);
+      for (let i = goalData.length - 1; i >= 1; i--) {
+        const rowUserId = goalData[i][0].toString().trim();
+        if (rowUserId === userId) {
+          const year = parseInt(goalData[i][2], 10);
+          const month = parseInt(goalData[i][3], 10) -1;
+          const goalDate = new Date(year, month, 1);
+
+          if (goalDate >= oneYearAgo) {
+            goalHistory.push({
+              year: goalData[i][2].toString(),
+              month: goalData[i][3].toString(),
+              goal: goalData[i][4] || '',
+              reflection: goalData[i][5] || '',
+              comment: goalData[i][6] || ''
+            });
+          }
+        }
+      }
+    }
+
+    return { 
+      success: true, 
+      data: { summary: summary, yearlyData: yearlyStudyData, logs: logs, goalHistory: goalHistory }
+    };
+  } catch (error) {
+    Logger.log(`Error in getStudentData for ${userId}: ` + error.toString() + " Stack: " + error.stack);
+    return { success: false, message: error.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function getStudentNameById(userId) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
     const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_STUDENT_MASTER);
     if (!sheet) return null;
@@ -675,5 +815,80 @@ function getStudentNameById(userId) {
   } catch(e) {
     Logger.log(`Error in getStudentNameById: ${e}`);
     return null;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function archiveMonthlySummaryAndReset() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const today = new Date();
+    const firstDayOfCurrentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    // 1日前の日付を取得することで、先月の最終日を得る
+    const lastDayOfPreviousMonth = new Date(firstDayOfCurrentMonth.getTime() - 1);
+    // フォーマットを 'YYYY-MM' 形式にする
+    const targetYearMonth = Utilities.formatDate(lastDayOfPreviousMonth, Session.getScriptTimeZone(), 'yyyy-MM');
+
+    Logger.log(`月次集計とリセット処理を開始します。対象年月: ${targetYearMonth}`);
+
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const summarySheet = spreadsheet.getSheetByName(SHEET_SUMMARY);
+    const monthlySummarySheet = spreadsheet.getSheetByName(SHEET_MONTHLY_SUMMARY);
+
+    if (!summarySheet || !monthlySummarySheet) {
+      Logger.log('必要なシートが見つかりませんでした。処理を中断します。');
+      return;
+    }
+
+    // ヘッダー行を除いてデータを取得 (2行目から最終行まで)
+    const summaryData = summarySheet.getRange(2, 1, summarySheet.getLastRow() - 1, 7).getValues();
+    const dataToArchive = [];
+    const rowsToReset = [];
+
+    summaryData.forEach((row, index) => {
+      const studentId = row[0]; // A列: 生徒ID
+      const studentName = row[1]; // B列: 生徒名
+      const monthlyMinutes = parseFloat(row[6]) || 0; // G列: 今月の累計(分)
+
+      // 月間学習時間が0分より大きい場合のみ処理
+      if (studentId && monthlyMinutes > 0) {
+        // 1. 月別集計シートにアーカイブするデータを作成
+        dataToArchive.push([
+          studentId,
+          studentName,
+          targetYearMonth,
+          
+          monthlyMinutes
+        ]);
+        Logger.log(`アーカイブ対象: ${studentName}さん (${studentId}) の ${targetYearMonth} の学習時間 ${monthlyMinutes} 分`);
+
+        // 2. サマリーシートでリセットする行のインデックスを記録
+        // getRangeは1から始まるため、indexに2を足す
+        rowsToReset.push(index + 2); 
+      }
+    });
+    // アーカイブデータがあれば、月別集計シートに一括で追記
+    if (dataToArchive.length > 0) {
+      monthlySummarySheet.getRange(monthlySummarySheet.getLastRow() + 1, 1, dataToArchive.length, 4).setValues(dataToArchive);
+      Logger.log(`${dataToArchive.length} 件のデータを月別集計シートに転記しました。`);
+    } else {
+      Logger.log('アーカイブ対象のデータはありませんでした。');
+    }
+
+    // カウンターをリセット
+    rowsToReset.forEach(rowIndex => {
+      // C列(最終活動日)からG列(今月の累計)までをリセット
+      // 最終活動日、初回・最終時刻はクリアし、日次・月次累計は0にする
+      summarySheet.getRange(rowIndex, 3, 1, 5).setValues([['', '', '', 0, 0]]);
+    });
+    if (rowsToReset.length > 0) {
+      Logger.log(`${rowsToReset.length} 人の生徒の学習時間カウンターをリセットしました。`);
+    }
+
+    Logger.log('月次集計とリセット処理が完了しました。');
+  } finally {
+    lock.releaseLock();
   }
 }
